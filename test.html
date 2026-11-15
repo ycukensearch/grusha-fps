@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>Груша FPS — Тест производительности телефона, планшета, ПК и т. п. </title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #05080e;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            touch-action: none;
+        }
+        #info {
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            right: 16px;
+            color: #b0d0ff;
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            padding: 14px 20px;
+            border-radius: 20px;
+            border: 1px solid #2a4a6a;
+            font-size: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+            pointer-events: none;
+            text-shadow: 0 1px 4px black;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        #info span {
+            color: #f0e68c;
+            font-weight: 800;
+            font-size: 20px;
+            margin-left: 6px;
+        }
+        #status {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #e0e8ff;
+            background: rgba(10, 20, 30, 0.85);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            padding: 16px 30px;
+            border-radius: 50px;
+            border: 1px solid #4a6a9a;
+            font-size: 16px;
+            text-align: center;
+            z-index: 10;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+            pointer-events: none;
+            width: 80%;
+            max-width: 400px;
+            line-height: 1.5;
+            transition: all 0.3s ease;
+        }
+        #status strong {
+            color: #ffd966;
+            font-size: 22px;
+            display: block;
+            margin-top: 6px;
+        }
+        .btn {
+            position: absolute;
+            bottom: 40px;
+            right: 20px;
+            background: linear-gradient(180deg, #2a405a, #142130);
+            border: 2px solid #4a6a8a;
+            color: #dfeaff;
+            font-weight: bold;
+            font-size: 15px;
+            padding: 14px 24px;
+            border-radius: 50px;
+            cursor: pointer;
+            z-index: 20;
+            box-shadow: 0 6px 0 #05080e;
+            letter-spacing: 1px;
+            transition: all 0.1s;
+            display: none;
+        }
+        .btn:active {
+            transform: translateY(4px);
+            box-shadow: 0 2px 0 #05080e;
+        }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <div>🍐 Груш: <span id="loadDisplay">1</span></div>
+        <div>⚡ FPS: <span id="fpsDisplay">--</span></div>
+    </div>
+    <div id="status">🚀 Запуск Груша FPS...<br>Нагрузка растёт</div>
+    <button class="btn" id="resetBtn">⟳ Заново</button>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.128.0/build/three.module.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // --- Настройки теста ---
+        const FPS_TARGET = 25;           
+        const MAX_SLOW_FRAMES = 15;      
+        const LOAD_INCREMENT = 10;       
+        const MAX_LOAD = 1000;           
+
+        // --- Сцена ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x05080e);
+        scene.fog = new THREE.FogExp2(0x05080e, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 200);
+        camera.position.set(0, 5, 30); // Отодвинули камеру немного дальше, чтобы влезло больше груш
+        camera.lookAt(0, 1, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        // --- Освещение ---
+        const ambientLight = new THREE.AmbientLight(0x404060, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        dirLight.position.set(10, 20, 10);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 1024;
+        dirLight.shadow.mapSize.height = 1024;
+        dirLight.shadow.camera.near = 1;
+        dirLight.shadow.camera.far = 50;
+        dirLight.shadow.camera.left = -30;
+        dirLight.shadow.camera.right = 30;
+        dirLight.shadow.camera.top = 30;
+        dirLight.shadow.camera.bottom = -30;
+        scene.add(dirLight);
+
+        const backLight = new THREE.PointLight(0x2266ff, 1.5, 50);
+        backLight.position.set(-10, 5, -10);
+        scene.add(backLight);
+
+        // --- Пол и сетка ---
+        const floorGeo = new THREE.PlaneGeometry(100, 100);
+        const floorMat = new THREE.MeshStandardMaterial({ color: 0x0a101a, roughness: 0.2, metalness: 0.8 });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = -2.5; // Опустили пол ниже, так как груши теперь висят выше
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        const gridHelper = new THREE.GridHelper(100, 100, 0x3366cc, 0x112233);
+        gridHelper.position.y = -2.49;
+        scene.add(gridHelper);
+
+        // --- Группа для груш ---
+        const pearGroup = new THREE.Group();
+        scene.add(pearGroup);
+
+        // --- Генерация геометрии ФРУКТА-ГРУШИ ---
+        const pearPoints = [];
+        for (let i = 0; i <= 20; i++) {
+            const t = i / 20;
+            const y = t * 2.0;
+            let r = Math.sin(t * Math.PI) * 0.7; 
+            r *= (1.0 - t * 0.5); 
+            if (t > 0.9) r *= Math.cos((t - 0.9) * 15);
+            if (t < 0.1) r = Math.max(r, 0.05);
+            pearPoints.push(new THREE.Vector2(r, y));
+        }
+        const pearGeo = new THREE.LatheGeometry(pearPoints, 12);
+
+        // Общие материалы
+        const peelMat = new THREE.MeshStandardMaterial({ 
+            color: 0xccdd44, roughness: 0.4, metalness: 0.05, emissive: 0x112200 
+        });
+        const stemMat = new THREE.MeshStandardMaterial({ color: 0x5a3a1a, roughness: 0.9 });
+        const stringMat = new THREE.MeshStandardMaterial({ color: 0x8899aa, transparent: true, opacity: 0.3 });
+
+        // Геометрии
+        const stemGeo = new THREE.CylinderGeometry(0.04, 0.06, 0.4, 4); 
+        const stringGeo = new THREE.CylinderGeometry(0.015, 0.015, 5, 4); // Чуть толще нить, чтобы было видно на фоне
+
+        // Создание одной груши
+        function createPear(offsetX = 0, offsetZ = 0, phaseOffset = 0) {
+            // Группа-подвес, которая будет вращаться
+            const pivotGroup = new THREE.Group();
+            pivotGroup.position.set(offsetX, 6.0, offsetZ); // Точка подвеса
+
+            // Сама груша со стеблем (вложена в подвес)
+            const pearMesh = new THREE.Group();
+            
+            // Смещаем грушу вниз по оси Y относительно подвеса
+            pearMesh.position.y = -2.2; 
+            
+            const pear = new THREE.Mesh(pearGeo, peelMat);
+            pear.position.y = -1.0; // Корректировка центра геометрии
+            pear.castShadow = true;
+            pear.receiveShadow = false; 
+            pearMesh.add(pear);
+
+            const stem = new THREE.Mesh(stemGeo, stemMat);
+            stem.position.y = 0.8;
+            stem.castShadow = true;
+            pearMesh.add(stem);
+
+            pivotGroup.add(pearMesh);
+
+            // Нить (тянется от точки подвеса вниз)
+            const string = new THREE.Mesh(stringGeo, stringMat);
+            string.position.y = -2.5; 
+            string.castShadow = false;
+            pivotGroup.add(string);
+
+            pivotGroup.userData = {
+                phase: phaseOffset,
+                speed: 1.5 + Math.random() * 0.5,
+                amplitude: 0.6 + Math.random() * 0.3 
+            };
+
+            return pivotGroup;
+        }
+
+        // --- Состояние теста ---
+        let currentLoad = 1;
+        let pears = [];
+        let running = true;
+        let slowCount = 0;
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let fpsAccum = 0;
+        let fps = 60;
+
+        const loadDisplay = document.getElementById('loadDisplay');
+        const fpsDisplay = document.getElementById('fpsDisplay');
+        const statusDiv = document.getElementById('status');
+        const resetBtn = document.getElementById('resetBtn');
+
+        function updateUI() {
+            loadDisplay.textContent = currentLoad;
+            fpsDisplay.textContent = fps.toFixed(1);
+        }
+
+        // Перестроить сцену
+        function rebuildPears(count) {
+            while (pearGroup.children.length > 0) {
+                pearGroup.remove(pearGroup.children[0]);
+            }
+            pears = [];
+
+            // Распределяем по сетке
+            const cols = Math.ceil(Math.sqrt(count));
+            const spacing = 2.5; // Увеличили расстояние, чтобы качающиеся груши не пересекались
+            const startX = -((cols - 1) * spacing) / 2;
+            const startZ = -((Math.ceil(count / cols) - 1) * spacing) / 2;
+
+            for (let i = 0; i < count; i++) {
+                const col = i % cols;
+                const row = Math.floor(i / cols);
+                const x = startX + col * spacing;
+                const z = startZ + row * spacing;
+                const phase = (i / count) * Math.PI * 2;
+
+                const p = createPear(x, z, phase);
+                pearGroup.add(p);
+                pears.push(p);
+            }
+        }
+
+        // Анимация физики
+        function animatePears(time) {
+            for (let i = 0; i < pears.length; i++) {
+                const p = pears[i];
+                const data = p.userData;
+                
+                // Вращаем точку подвеса (всю конструкцию)
+                p.rotation.x = Math.sin(time * data.speed + data.phase) * data.amplitude;
+                p.rotation.z = Math.cos(time * data.speed * 0.7 + data.phase) * (data.amplitude * 0.4);
+            }
+        }
+
+        // --- Главный цикл ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const now = performance.now();
+            let delta = now - lastTime;
+            lastTime = now;
+
+            if (delta > 1000) delta = 16;
+
+            frameCount++;
+            fpsAccum += delta;
+            if (fpsAccum >= 500) {
+                fps = (frameCount * 1000) / fpsAccum;
+                frameCount = 0;
+                fpsAccum = 0;
+                updateUI();
+            }
+
+            if (!running) {
+                renderer.render(scene, camera);
+                return;
+            }
+
+            const targetFrameTime = 1000 / FPS_TARGET;
+            
+            if (delta > targetFrameTime) {
+                slowCount++;
+            } else {
+                slowCount = Math.max(0, slowCount - 2); 
+            }
+
+            // Если телефон тормозит
+            if (slowCount >= MAX_SLOW_FRAMES) {
+                running = false;
+                statusDiv.innerHTML = `🍐 Груша FPS: Тест завершён!<br>Устройство выдержало:<strong>${currentLoad} груш</strong>`;
+                resetBtn.style.display = 'block'; 
+                return;
+            }
+
+            animatePears(now * 0.001);
+
+            // Если всё летает на ура и лимит не достигнут
+            if (slowCount === 0 && delta < targetFrameTime * 0.7 && currentLoad < MAX_LOAD) {
+                currentLoad = Math.min(currentLoad + LOAD_INCREMENT, MAX_LOAD); 
+                rebuildPears(currentLoad);
+                updateUI();
+                slowCount = 0;
+                lastTime = performance.now();
+            } 
+            // Если достигли максимума в 1000 груш
+            else if (currentLoad >= MAX_LOAD && slowCount === 0) {
+                running = false;
+                statusDiv.innerHTML = `🏆 Максимальный лимит!<br>Ваше устройство без труда тянет:<strong>${MAX_LOAD} груш</strong>`;
+                resetBtn.style.display = 'block'; 
+                return;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // --- Сброс ---
+        function resetTest() {
+            running = false;
+            currentLoad = 1;
+            slowCount = 0;
+            rebuildPears(currentLoad);
+            updateUI();
+            statusDiv.innerHTML = '🚀 Запуск Груша FPS...<br>Нагрузка растёт';
+            resetBtn.style.display = 'none';
+            
+            setTimeout(() => {
+                running = true;
+                lastTime = performance.now();
+                slowCount = 0;
+                frameCount = 0;
+                fpsAccum = 0;
+            }, 500);
+        }
+
+        resetBtn.addEventListener('click', resetTest);
+
+        // --- Старт ---
+        rebuildPears(1);
+        updateUI();
+        lastTime = performance.now();
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+  </html>
